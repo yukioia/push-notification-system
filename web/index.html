@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>Push Demo</title>
+</head>
+<body>
+<h2>Push-сервис — demo</h2>
+<label>Client ID: <input id="clientId" value="client-1"/></label>
+<button id="subscribe">Subscribe</button>
+<button id="unsubscribe">Unsubscribe</button>
+<hr/>
+<h3>Messages</h3>
+<div id="messages"></div>
+
+<script>
+    const clientIdInput = document.getElementById('clientId');
+    const messagesDiv = document.getElementById('messages');
+    let es;
+
+    document.getElementById('subscribe').onclick = async () => {
+        const clientId = clientIdInput.value;
+        // subscribe to topic "news" with tags ["sports"]
+        await fetch('/api/subscribe', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({client_id: clientId, topics: ['news'], tags: ['sports']})
+        });
+        // open SSE
+        if (es) es.close();
+        es = new EventSource('/sse/' + encodeURIComponent(clientId));
+        es.onmessage = (e) => {
+            const p = document.createElement('p');
+            p.textContent = e.data;
+            messagesDiv.prepend(p);
+        };
+        es.onerror = (e) => console.error('SSE error', e);
+        alert('Subscribed & SSE opened');
+    };
+
+    document.getElementById('unsubscribe').onclick = async () => {
+        const clientId = clientIdInput.value;
+        await fetch('/api/unsubscribe', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({client_id: clientId})
+        });
+        if (es) es.close();
+        alert('Unsubscribed');
+    };
+</script>
+</body>
+</html>
