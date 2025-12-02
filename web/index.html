@@ -1,53 +1,202 @@
 <!doctype html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="utf-8"/>
-    <title>Push Demo</title>
+    <title>Push-сервис Demo</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            max-width: 900px;
+            margin: 20px auto;
+            background: #f4f6f8;
+            color: #333;
+        }
+        h2 {
+            text-align: center;
+            color: #1f2937;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+        input, select, button {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            font-size: 0.9rem;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        .subscription-list {
+            margin-bottom: 20px;
+            padding-left: 0;
+            list-style: none;
+        }
+        .subscription-list li {
+            background: #e0f2fe;
+            padding: 6px 10px;
+            margin-bottom: 5px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .messages {
+            max-height: 400px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 10px;
+        }
+        .message-card {
+            background: #ffffff;
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+            border-left: 5px solid #3b82f6;
+        }
+        .message-header {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #374151;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tags {
+            font-size: 0.8rem;
+            color: #6b7280;
+            background: #e0f2fe;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 4px;
+        }
+        #status {
+            margin-left: 10px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #6b7280;
+        }
+    </style>
 </head>
 <body>
-<h2>Push-сервис — demo</h2>
-<label>Client ID: <input id="clientId" value="client-1"/></label>
-<button id="subscribe">Subscribe</button>
-<button id="unsubscribe">Unsubscribe</button>
-<hr/>
-<h3>Messages</h3>
-<div id="messages"></div>
+
+<h2>Push-сервис Demo</h2>
+
+<div class="controls">
+    <label>Client ID: <input id="clientId" value="client-1"/></label>
+    <label>Тема:
+        <select id="topicSelect">
+            <option value="news">News</option>
+            <option value="weather">Weather</option>
+            <option value="alerts">Alerts</option>
+        </select>
+    </label>
+    <label>Теги: <input id="tagsInput" placeholder="sports,politics"/></label>
+    <button id="subscribe">Subscribe</button>
+    <button id="unsubscribe">Unsubscribe All</button>
+    <span id="status">SSE: disconnected</span>
+</div>
+
+<h3>Текущие подписки</h3>
+<ul class="subscription-list" id="subsList"></ul>
+
+<h3>Сообщения</h3>
+<div class="messages" id="messages"></div>
 
 <script>
     const clientIdInput = document.getElementById('clientId');
+    const topicSelect = document.getElementById('topicSelect');
+    const tagsInput = document.getElementById('tagsInput');
     const messagesDiv = document.getElementById('messages');
-    let es;
+    const subsList = document.getElementById('subsList');
+    const status = document.getElementById('status');
+
+    let es = null;
+    let currentSubs = [];
+
+    function updateSubsList() {
+        subsList.innerHTML = '';
+        currentSubs.forEach(sub => {
+            const li = document.createElement('li');
+            li.textContent = `${sub.topic} [${sub.tags.join(', ')}]`;
+            subsList.appendChild(li);
+        });
+    }
+
+    function connectSSE(clientId) {
+        if (es) es.close();
+        es = new EventSource('/sse/' + encodeURIComponent(clientId));
+        es.onopen = () => status.textContent = 'SSE: connected';
+        es.onclose = () => status.textContent = 'SSE: disconnected';
+        es.onerror = (e) => { console.error(e); status.textContent = 'SSE: error'; };
+
+        es.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+
+            // фильтрация по подпискам
+            if (!currentSubs.some(sub => sub.topic === msg.topic && sub.tags.every(t => msg.tags.includes(t)))) return;
+
+            const card = document.createElement('div');
+            card.className = 'message-card';
+            const time = new Date(msg.created).toLocaleTimeString();
+            card.innerHTML = `<div class="message-header">
+                            <span>[${time}] ${msg.topic}</span>
+                            <span class="tags">${msg.tags.join(', ')}</span>
+                          </div>
+                          <div>${msg.title}: ${msg.body}</div>`;
+            messagesDiv.prepend(card);
+        };
+    }
 
     document.getElementById('subscribe').onclick = async () => {
         const clientId = clientIdInput.value;
-        // subscribe to topic "news" with tags ["sports"]
+        const topic = topicSelect.value;
+        const tags = tagsInput.value.split(',').map(t => t.trim()).filter(Boolean);
+
         await fetch('/api/subscribe', {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({client_id: clientId, topics: ['news'], tags: ['sports']})
+            body: JSON.stringify({client_id: clientId, topics: [topic], tags})
         });
-        // open SSE
-        if (es) es.close();
-        es = new EventSource('/sse/' + encodeURIComponent(clientId));
-        es.onmessage = (e) => {
-            const p = document.createElement('p');
-            p.textContent = e.data;
-            messagesDiv.prepend(p);
-        };
-        es.onerror = (e) => console.error('SSE error', e);
-        alert('Subscribed & SSE opened');
+
+        currentSubs.push({topic, tags});
+        updateSubsList();
+        connectSSE(clientId);
     };
 
     document.getElementById('unsubscribe').onclick = async () => {
         const clientId = clientIdInput.value;
+
         await fetch('/api/unsubscribe', {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({client_id: clientId})
         });
+
         if (es) es.close();
-        alert('Unsubscribed');
+        es = null;
+        currentSubs = [];
+        updateSubsList();
+        status.textContent = 'SSE: disconnected';
     };
 </script>
+
 </body>
 </html>
